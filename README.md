@@ -1,18 +1,20 @@
 # Python Skills
 
-Reusable Codex skill definitions for opinionated Python backend work.
+Reusable skill definitions for opinionated Python work.
 
-This repository contains local skill files that can be installed into a Codex
-skills directory and reused across projects. The current skills focus on
-type-safe, validation-heavy Python development and a consistent FastAPI/backend
-project layout.
+This repository contains local skill files that can be installed into a skills
+directory supported by your coding agent, or used directly by agents that can
+load local skill definitions. The current skills focus on type-safe,
+validation-heavy Python development and a consistent backend project layout,
+with room to expand into other Python topics and verification workflows over
+time.
 
 ## Included Skills
 
 | Skill | Purpose |
 |---|---|
 | `python-programmer` | Production-grade Python implementation guidance: typed functions, Pydantic at I/O boundaries, immutable internal models, `returns`-style result handling, `pytest`, `ruff`, `ty`, and `basedpyright`. |
-| `python-project-structure` | Mandatory backend/FastAPI directory layout and architectural rules separating domain logic, infrastructure I/O, API boundaries, tests, migrations, scripts, and docs. |
+| `python-project-structure` | Mandatory backend directory layout and architectural rules separating domain logic, infrastructure I/O, API boundaries, tests, migrations, scripts, and docs. |
 
 ## Repository Layout
 
@@ -27,32 +29,26 @@ project layout.
 ```
 
 Each skill is a directory containing a `SKILL.md` file with YAML front matter
-and the instructions Codex should follow when the skill is selected.
+and the instructions a compatible coding agent should follow when the skill is
+selected.
 
 ## Installation
 
-Copy the skill directories into your Codex skills directory:
+Copy the skill directories into the skills directory used by your agent:
 
 ```bash
-mkdir -p ~/.codex/skills
-cp -R skills/python-programmer ~/.codex/skills/
-cp -R skills/python-project-structure ~/.codex/skills/
+mkdir -p <skills-dir>
+cp -R skills/python-programmer <skills-dir>/
+cp -R skills/python-project-structure <skills-dir>/
 ```
 
-If your environment uses a different `CODEX_HOME`, install into that location
-instead:
-
-```bash
-mkdir -p "$CODEX_HOME/skills"
-cp -R skills/python-programmer "$CODEX_HOME/skills/"
-cp -R skills/python-project-structure "$CODEX_HOME/skills/"
-```
-
-Restart Codex after installation if the skills are not detected immediately.
+If your agent loads skills from the repository directly, you can usually skip
+this step and point it at the local `skills/` directory instead.
 
 ## Usage
 
-Invoke a skill by name when asking Codex to work on a Python project:
+Invoke a skill by name when asking a compatible agent to work on a Python
+project:
 
 ```text
 Use $python-programmer to implement this service with typed errors and tests.
@@ -95,6 +91,12 @@ style preferences.
 
 This repository intentionally contains only reusable skill instructions. It does
 not include project code, package metadata, or runtime dependencies.
+
+The skills are intentionally written to be broadly useful across coding agents
+and Python project types. They are not limited to Codex, and they are not
+limited to FastAPI. The current scope reflects the skills already present in
+this repository; future additions may cover other Python domains, tooling, and
+linting or verification rules that help agents follow the skills consistently.
 
 If you extend it, keep generated files, secrets, local logs, virtual
 environments, and editor-specific state out of the repository.
