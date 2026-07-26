@@ -173,9 +173,13 @@ match intent.decision:
 
 Use enums as the discriminant for pattern matching whenever the branch set is finite and meaningful.
 
-## Prefer `functools.singledispatch` for Type-Based Business Logic
+## Prefer `plum-dispatch` for Type-Based Business Logic
 
-When business logic varies by the concrete type of a domain object, prefer `functools.singledispatch` over `if/elif isinstance(...)` or `match/case`.
+When business logic varies by the concrete type of one or more domain objects, prefer the `plum` library (`pip install plum-dispatch`, imported as `plum`) over `if/elif isinstance(...)` or `match/case`.
+
+`plum` is the modern successor to `functools.singledispatch` and `multipledispatch`. It generalizes dispatch to **multiple arguments**, so the selected implementation can depend on the *combination* of several runtime types — not just the first one.
+
+Its defining advantage: **`@dispatch` reads types from annotations, not from the decorator.** You annotate the function parameters as usual (which this skill already requires), and `plum` builds the dispatch table from those annotations. Type checkers see the real signatures, and there is no duplication between the decorator and the parameter list.
 
 This is especially useful for processing:
 
@@ -189,11 +193,26 @@ This is especially useful for processing:
 - Typed AST nodes
 - Validation results
 
-### Example
+### Install
+
+`plum-dispatch` is a third-party library — add it to the project dependencies:
+
+```bash
+pip install plum-dispatch
+```
+
+Import as `plum`:
 
 ```python
-from functools import singledispatch
+from plum import dispatch
+```
+
+### Example — single-argument dispatch
+
+```python
 from dataclasses import dataclass
+
+from plum import dispatch
 
 
 class PaymentMethod:
@@ -215,23 +234,18 @@ class CryptoWallet(PaymentMethod):
     address: str
 
 
-@singledispatch
-def process_payment(method: PaymentMethod) -> PaymentResult:
-    raise TypeError(f"Unsupported payment method: {type(method).__name__}")
-
-
-@process_payment.register
-def _(method: CreditCard) -> PaymentResult:
+@dispatch
+def process_payment(method: CreditCard) -> PaymentResult:
     ...
 
 
-@process_payment.register
-def _(method: BankTransfer) -> PaymentResult:
+@dispatch
+def process_payment(method: BankTransfer) -> PaymentResult:
     ...
 
 
-@process_payment.register
-def _(method: CryptoWallet) -> PaymentResult:
+@dispatch
+def process_payment(method: CryptoWallet) -> PaymentResult:
     ...
 ```
 
@@ -249,9 +263,45 @@ def process_payment(method: PaymentMethod) -> PaymentResult:
         ...
 ```
 
+Calling `process_payment` with an unregistered type raises `plum`'s `NotFoundLookupError` — no manual `else: raise TypeError` branch is needed.
+
+### Example — multi-argument dispatch
+
+Because `@dispatch` reads every annotated parameter, you can branch on the **combination** of several arguments, which `singledispatch` cannot do:
+
+```python
+from plum import dispatch
+
+
+@dispatch
+def charge(method: CreditCard, currency: USD) -> PaymentResult:
+    ...
+
+
+@dispatch
+def charge(method: CreditCard, currency: EUR) -> PaymentResult:
+    ...
+
+
+@dispatch
+def charge(method: BankTransfer, currency: USD) -> PaymentResult:
+    ...
+```
+
+### Fallback
+
+To catch any argument that no specific method handles, register an implementation against a broader base type. `plum` dispatches to the most specific match, falling back to the broader one:
+
+```python
+@dispatch
+def charge(method: PaymentMethod, currency: Currency) -> PaymentResult:
+    # Broad catch-all: runs only when no more specific method matches.
+    ...
+```
+
 ### Why
 
-For domain-driven applications, each business type encapsulates a distinct concept. Registering one implementation per type:
+For domain-driven applications, each business type encapsulates a distinct concept. Registering one implementation per type (or per type combination):
 
 - Keeps each business rule isolated.
 - Makes adding new business types non-invasive.
@@ -259,12 +309,14 @@ For domain-driven applications, each business type encapsulates a distinct conce
 - Produces smaller, more testable functions.
 - Follows the Open/Closed Principle.
 - Leverages Python's runtime type hierarchy instead of manual dispatch.
+- Scales beyond a single argument — dispatch on full type signatures.
+- Keeps annotations as the single source of truth — no decorator/type-list duplication.
 
 ### Guidelines
 
-Prefer `singledispatch` when:
+Prefer `plum` when:
 
-- Behavior is selected solely by the runtime type of the first argument.
+- Behavior is selected by the runtime type of one or more arguments.
 - Each domain type represents a distinct business concept.
 - New business types are expected over time.
 - Each implementation is substantial enough to justify its own function.
@@ -272,7 +324,6 @@ Prefer `singledispatch` when:
 Avoid it when dispatch depends on:
 
 - Field values.
-- Multiple arguments.
 - Arbitrary predicates.
 - State or configuration.
 
@@ -298,7 +349,7 @@ OrderAction(action="reject")
 OrderAction(action="cancel")
 ```
 
-Well-modeled domain types naturally enable `singledispatch`, resulting in code that is easier to extend, test, and reason about.
+Well-modeled domain types naturally enable `plum` dispatch, resulting in code that is easier to extend, test, and reason about.
 
 ## Testing Rules
 
