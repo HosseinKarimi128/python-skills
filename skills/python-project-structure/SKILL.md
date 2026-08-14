@@ -2,253 +2,365 @@
 name: python-project-structure
 
 description: >
-  Mandatory FastAPI / backend project directory layout and structural rules.
-  Every project must follow this layout unless the user explicitly requests a smaller prototype.
-  Create the core directories consistently so domain logic, infrastructure I/O, and API boundaries stay separated.
+  Feature-oriented FastAPI / backend project structure with explicit application,
+  domain, and infrastructure boundaries. Use this layout for normal production
+  backends unless the user explicitly requests a smaller prototype.
 ---
 
 # Python Project Structure
 
-## Directory Layout
+Use a feature-oriented structure for normal FastAPI backends. Organize code by
+business capability first, while keeping the architectural boundary visible:
 
-Use the following directory layout for every FastAPI / backend project. If a project spec does not require a given layer yet, still create the corresponding directory with a minimal `__init__.py` or placeholder module when doing so preserves architectural consistency.
+```text
+api            -> HTTP transport and presentation
+application    -> use cases and workflow orchestration
+domain         -> business rules, entities, and ports
+infrastructure -> database and external-service implementations
+```
+
+The application layer is intentional. It answers "what does the system do for
+this use case?" and coordinates repositories, domain rules, transactions, and
+external gateways. It must not know about FastAPI, HTTP, SQLModel, or vendor SDKs.
+
+## Default Layout
 
 ```text
 myapp/
 ├── pyproject.toml
-├── Dockerfile                          # Production application image
-├── compose.yaml                        # Production Docker Compose stack
-├── entrypoint.sh                       # Container startup script
-├── alembic.ini                         # Alembic configuration
-├── .env                                # Local development environment variables
-├── .env.prod                           # Production environment variables/template
-├── assets/                             # Files intentionally excluded from app image
-│   └── ...
-├── postman/                            # Postman collections and environments
+├── Dockerfile
+├── compose.yaml
+├── entrypoint.sh
+├── alembic.ini
+├── .env
+├── .env.prod
+├── assets/
+├── postman/
 │   ├── collections/
-│   │   └── *.json
 │   └── environments/
-│       └── *.json
-├── migrations/                         # Alembic migration environment
+├── migrations/
 │   ├── env.py
 │   ├── script.py.mako
 │   └── versions/
-│       └── *.py
-├── logs/                               # Runtime logs, usually gitignored
+├── logs/
 │   └── .gitkeep
-├── scripts/                            # Bash black-box API workflow scripts
-│   └── *.sh
-├── docs/                               # Project documentation
-│   └── *.md / .excalidraw
+├── scripts/
+├── docs/
 ├── src/
 │   └── myapp/
 │       ├── __init__.py
-│       ├── main.py                    # FastAPI app factory, lifespan, middleware
-│       ├── config.py                  # Pydantic Settings (env validation)
+│       ├── main.py                    # App factory, lifespan, middleware
+│       ├── config.py                  # Pydantic Settings and env validation
+│       ├── state.py                   # Shared runtime resources
+│       ├── error.py                   # Cross-layer error/result translation
 │       │
-│       ├── domain/                    # Pure logic, zero I/O
+│       ├── api/
 │       │   ├── __init__.py
-│       │   ├── models/                # Internal domain value objects
-│       │   │   ├── __init__.py
-│       │   │   └── *.py               # One file per domain concept
-│       │   ├── schemas/               # App-owned I/O contracts, not vendor DTOs
-│       │   │   ├── __init__.py
-│       │   │   └── *.py               # Request/Response payload shapes
-│       │   ├── enums/                 # Exhaustive enums for match-case
-│       │   │   ├── __init__.py
-│       │   │   └── *.py               # One file per enum
-│       │   ├── protocols/             # @runtime_checkable traits for outbound I/O
-│       │   │   ├── __init__.py
-│       │   │   ├── repository.py      # Repository[T, ID] protocol for persistence
-│       │   │   ├── *_gateway.py       # External service protocols
-│       │   │   └── unit_of_work.py    # UnitOfWork protocol for DB transactions
-│       │   ├── services/              # Pure functions, no classes
-│       │   │   ├── __init__.py
-│       │   │   └── *.py               # One file per service
-│       │   └── errors/                # Explicit error types
+│       │   ├── deps.py                # FastAPI dependency wiring
+│       │   ├── router.py              # Top-level router aggregation
+│       │   ├── exceptions.py          # HTTP exception handlers
+│       │   └── v1/
 │       │       ├── __init__.py
-│       │       ├── base.py            # DomainError base
-│       │       └── *.py               # One file per error variant
+│       │       ├── router.py
+│       │       ├── users/
+│       │       │   ├── __init__.py
+│       │       │   ├── routes.py
+│       │       │   ├── request.py
+│       │       │   └── response.py
+│       │       └── orders/
+│       │           ├── __init__.py
+│       │           ├── routes.py
+│       │           ├── request.py
+│       │           └── response.py
 │       │
-│       ├── infrastructure/            # I/O boundaries, side effects only here
+│       ├── application/
 │       │   ├── __init__.py
-│       │   ├── db/
+│       │   ├── ports/                 # Cross-feature application contracts
 │       │   │   ├── __init__.py
-│       │   │   ├── engine.py          # SQLModel engine factory
-│       │   │   ├── session.py         # SessionLocal / async session maker
-│       │   │   └── orm/               # SQLModel ORM models
-│       │   │       ├── __init__.py
-│       │   │       └── *.py           # One file per ORM entity
-│       │   ├── repositories/          # DB protocol implementations
+│       │   │   └── unit_of_work.py
+│       │   ├── users/
 │       │   │   ├── __init__.py
-│       │   │   └── *.py               # user_repo.py, order_repo.py
-│       │   ├── gateways/              # External API / third-party service adapters
-│       │   │   ├── __init__.py
-│       │   │   └── *.py               # stripe_gateway.py, sendgrid_gateway.py
-│       │   ├── mappers/               # ORM/API DTO ↔ app-owned models/schemas
-│       │   │   ├── __init__.py
-│       │   │   └── *.py               # user_mapper.py, stripe_mapper.py
-│       │   └── unit_of_work.py        # SQLUnitOfWork transaction boundary
+│       │   │   ├── commands.py        # Use-case input models
+│       │   │   ├── create.py          # Register/create workflow
+│       │   │   └── get.py             # Read workflow
+│       │   └── orders/
+│       │       ├── __init__.py
+│       │       ├── commands.py
+│       │       ├── create.py
+│       │       └── cancel.py
 │       │
-│       ├── api/                       # FastAPI HTTP layer
+│       ├── domain/
 │       │   ├── __init__.py
-│       │   ├── deps.py                # Dependency injection wiring
-│       │   ├── schemas/               # HTTP-specific request/response schemas
+│       │   ├── shared/                # Truly cross-feature concepts only
 │       │   │   ├── __init__.py
-│       │   │   └── *.py
-│       │   ├── v1/
+│       │   │   ├── errors.py
+│       │   │   └── ids.py
+│       │   ├── users/
 │       │   │   ├── __init__.py
-│       │   │   ├── router.py          # APIRouter aggregation
-│       │   │   └── *.py               # One file per resource
-│       │   └── exceptions.py          # HTTP exception handlers for Failure
+│       │   │   ├── entity.py
+│       │   │   ├── value_objects.py
+│       │   │   ├── enums.py
+│       │   │   ├── errors.py
+│       │   │   └── repository.py       # User persistence port
+│       │   └── orders/
+│       │       ├── __init__.py
+│       │       ├── entity.py
+│       │       ├── value_objects.py
+│       │       ├── enums.py
+│       │       ├── errors.py
+│       │       └── repository.py
 │       │
-│       └── lib/
-│           ├── __init__.py
-│           └── ...                    # Pure shared helpers
+│       ├── infrastructure/
+│       │   ├── __init__.py
+│       │   ├── persistence/
+│       │   │   ├── __init__.py
+│       │   │   ├── db.py              # Engine/session factory
+│       │   │   ├── uow.py             # Concrete transaction boundary
+│       │   │   ├── models/
+│       │   │   │   ├── user.py         # ORM models
+│       │   │   │   └── order.py
+│       │   │   ├── repositories/
+│       │   │   │   ├── user.py         # Repository port implementations
+│       │   │   │   └── order.py
+│       │   │   └── mappers/
+│       │   │       ├── user.py
+│       │   │       └── order.py
+│       │   └── gateways/
+│       │       ├── __init__.py
+│       │       ├── payments.py         # External-service adapter
+│       │       └── email.py
+│       │
+│       └── lib/                       # Generic, project-independent helpers
+│           └── __init__.py
 │
 └── tests/
     ├── conftest.py
     ├── unit/
-    │   └── domain/
-    │       └── test_*.py
-    └── integration/
-        └── infrastructure/
-            └── test_*.py
+    │   ├── domain/
+    │   └── application/
+    ├── integration/
+    │   └── infrastructure/
+    └── e2e/
 ```
 
-## Root Directory Purpose and Contents
+Create only the features and layers needed by the project. For a normal
+production backend, keep the top-level boundaries and add placeholder modules
+only when they make the architecture clearer. For a deliberately small
+prototype, the user may opt into a flatter layout.
 
-| Directory / File | Purpose | What goes inside |
-|---|---|---|
-| `pyproject.toml` | Project metadata, dependencies, tool configuration, and package settings. | Runtime dependencies, dev dependencies, pytest/ruff/ty settings. |
-| `Dockerfile` | Production application image definition. | Multi-stage build if useful, dependency install, non-root runtime user, app startup command. |
-| `compose.yaml` | Production Docker Compose stack. | App service, database service, networks, volumes, healthchecks, restart policy. |
-| `entrypoint.sh` | Container startup script. | Runtime setup, optional migration command, then `exec` the app process. |
-| `alembic.ini` | Alembic CLI configuration. | Database URL config references, script location, logging config. |
-| `.env` | Local development environment variables. | Local database URL, debug flags, local service settings. |
-| `.env.prod` | Production environment variables or production template. | Production variable names and deployment-time values/placeholders. |
-| `assets/` | Files intentionally excluded from the app image. | Large local artifacts, design files, raw uploads, seeds, private operational assets, temporary import/export files. |
-| `postman/` | Postman assets for manual API exploration and shared request workflows. | Collections, environments, example request suites. |
-| `migrations/` | Alembic migration environment and generated migration revisions. | `env.py`, `script.py.mako`, `versions/*.py`. |
-| `logs/` | Local runtime log output. This directory should usually be gitignored except for `.gitkeep`. | `.gitkeep`; generated `.log` files during local/dev runs. |
-| `scripts/` | Bash scripts for black-box API workflows and operational checks. These scripts interact with the running app from the outside. | API smoke tests, end-to-end request flows, local setup helpers. |
-| `docs/` | Project documentation for architecture, API behavior, deployment notes, and operational runbooks. | `architecture.md`, `api.md`, `development.md`, `deployment.md`. |
-| `src/` | Application source package. | FastAPI app, domain logic, infrastructure adapters, API routes. |
-| `tests/` | Automated test suite. | Unit tests, integration tests, fixtures. |
+## Layer Responsibilities
 
-## Directory Purpose and Contents
+### `api/` — HTTP Boundary
 
-### `domain/` — Pure Logic, Zero I/O
+The API layer translates between HTTP and application inputs/outputs.
 
-The **heart of the application**. Nothing in this directory imports SQLModel, FastAPI, HTTP clients, third-party SDKs, credentials, or any I/O library. It is fully testable with no database, no server, and no network.
+- `routes.py` contains thin FastAPI endpoints and route declarations.
+- `request.py` contains HTTP request schemas, query parameters, and path models.
+- `response.py` contains HTTP response schemas and serialization concerns.
+- `deps.py` builds application dependencies from configuration and request context.
+- `exceptions.py` maps typed application/domain failures to HTTP responses.
+- `router.py` aggregates versioned and feature routers.
 
-| Sub-directory | Purpose | What goes inside |
-|---|---|---|
-| `domain/models/` | Internal domain value objects. Prefer `@dataclass(frozen=True, slots=True)`. These are not Pydantic and carry no validation overhead. | `UserSummary`, `Money`, `TaskAssignment`, `OrderTotals`. |
-| `domain/schemas/` | App-owned I/O contracts used by protocols and services. These may be Pydantic models, but they must not be raw vendor DTOs. | `PaymentRequest`, `PaymentResponse`, `EmailSendRequest`. |
-| `domain/enums/` | Exhaustive tagged unions for `match-case` branching. Every state machine, discriminated union, or categorical value is an enum. | `TaskStatus(StrEnum)`, `PaymentStatus(StrEnum)`. |
-| `domain/protocols/` | Rust-like traits using `@runtime_checkable Protocol`. They declare what operations exist, not how they are implemented. | `repository.py`, `payment_gateway.py`, `email_gateway.py`, `unit_of_work.py`. |
-| `domain/services/` | Pure functions that encode business rules and orchestration. No classes, no side effects. | `create_task(...) -> Result[TaskSummary, TaskError]`. |
-| `domain/errors/` | Explicit, structured error types returned inside `Failure`. Every failure mode is a named class. | `TaskNotFoundError`, `PaymentDeclinedError`. |
+An endpoint should validate/extract input, create an application command or
+query, call one use case, and translate its result. It should not coordinate
+multiple repositories, manage transactions, call vendor SDKs, or contain
+business decisions.
 
-**Key rules for domain models and schemas:**
+### `application/` — Use Cases and Orchestration
 
-- Internal domain models live in `domain/models/`.
-- App-owned I/O contracts live in `domain/schemas/`.
-- HTTP-only request/response schemas may live in `api/schemas/`.
-- External vendor objects must never leak into `domain/`.
-- Normalize third-party API payloads into app-owned schemas before passing them into domain services.
-- Domain protocols may reference app-owned domain models and schemas, but never ORM models, SDK objects, HTTP responses, or vendor DTOs.
+The application layer represents actions the system performs: `create_user`,
+`get_user`, `place_order`, `cancel_order`, and similar workflows.
 
-### `infrastructure/` — I/O Boundaries
+An application use case may:
 
-The **dirty edge** of the application. This is the only place `session.commit()`, HTTP requests, third-party SDK calls, file writes, or external API calls happen. Domain code never imports from here.
+- load data through repository ports;
+- call domain constructors, methods, and pure domain services;
+- enforce workflow-level authorization or sequencing;
+- coordinate multiple features or repositories;
+- call external-service ports;
+- open, commit, and roll back a Unit of Work;
+- return a typed success or failure result.
 
-| Sub-directory | Purpose | What goes inside |
-|---|---|---|
-| `infrastructure/db/` | Database connectivity. Engine, session factory, and SQLModel ORM table definitions. | `engine.py`, `session.py`, `orm/user.py`. |
-| `infrastructure/db/orm/` | SQLModel table schemas. These are persistence-layer shapes, not API contracts and not domain models. | `UserORM`, `OrderORM`. |
-| `infrastructure/repositories/` | Database persistence adapter implementations. Concrete classes satisfy repository protocols from `domain/protocols/`. | `SQLUserRepository`, `SQLOrderRepository`. |
-| `infrastructure/gateways/` | External service adapter implementations. Treat third-party API I/O like DB I/O: define the abstraction in `domain/protocols/`, implement the concrete adapter here. | `StripePaymentGateway`, `SendgridEmailGateway`, `S3FileGateway`. |
-| `infrastructure/mappers/` | Pure translation functions between ORM/API DTO objects and app-owned domain models or schemas. | `orm_to_user_summary()`, `stripe_payload_to_payment_response()`. |
-| `infrastructure/unit_of_work.py` | Database transaction boundary. Holds the database session, injects it into repositories, and controls `commit()` / `rollback()`. | `SQLUnitOfWork`. |
+It must not import FastAPI, SQLModel/SQLAlchemy, HTTP clients, vendor SDKs,
+credentials, or concrete infrastructure adapters.
 
-External service gateways usually should not be part of the database `UnitOfWork`. Keep DB transactions and third-party API calls separate unless the project explicitly needs an orchestration pattern such as an outbox, saga, or idempotent retry workflow.
+Application code is not necessarily pure. Its job is orchestration. Keep pure
+business calculations and invariants in `domain/`.
 
-### `api/` — FastAPI HTTP Layer
+Use one module per use case when the workflow is substantial. Keep commands,
+queries, and result types near their feature instead of collecting all services
+in one global `services.py`.
 
-The **presentation boundary**. Validates incoming JSON, calls domain services, and converts `Result` into HTTP responses. No business logic lives here.
+### `domain/` — Business Concepts and Rules
 
-| Sub-directory / File | Purpose | What goes inside |
-|---|---|---|
-| `api/deps.py` | Dependency injection wiring. FastAPI `Depends()` factories that build repositories, unit-of-work instances, and external gateways from config/request context. | `get_session()`, `get_uow()`, `get_payment_gateway()`. |
-| `api/schemas/` | HTTP-specific request/response schemas. Use this when a schema exists only because of the public HTTP API. | `CreateUserBody`, `UserHTTPResponse`. |
-| `api/exceptions.py` | HTTP exception handlers. Converts `Failure` objects into `HTTPException` with correct status codes. | `handle_result(result)`. |
-| `api/v1/router.py` | Router aggregation. Collects all resource routers under `/v1`. | `router.include_router(users.router, prefix="/users")`. |
-| `api/v1/*.py` | Resource endpoints. One file per REST resource. | `users.py`, `tasks.py`, `orders.py`. |
+The domain is framework- and I/O-independent. It contains the rules that must
+remain true regardless of whether the system is called through HTTP, a worker,
+or a command-line process.
 
-### `lib/`
+Feature-local domain modules may contain:
 
-Small, reusable, **pure shared helpers** that multiple layers may import. They must not depend on project-specific domain, infrastructure, or API code.
+- entities and aggregates in `entity.py`;
+- value objects in `value_objects.py`;
+- exhaustive enums and state values in `enums.py`;
+- typed domain failures in `errors.py`;
+- repository and gateway ports owned by the feature;
+- pure domain services for rules that do not belong to one entity.
 
-Good candidates:
+Do not place ORM models, Pydantic HTTP schemas, FastAPI objects, vendor DTOs,
+credentials, or concrete clients here. Domain code may define `Protocol`
+interfaces, but it must not import their implementations.
 
-- retry helpers
-- logging setup helpers
-- clock/id provider helpers
-- serialization helpers
-- small functional utilities
+Prefer feature-local enums, errors, and protocols. A global `domain/enums/` or
+`domain/protocols/` directory is allowed only for concepts genuinely shared by
+multiple features. The module that needs a port should own that port; the
+infrastructure module implements it.
 
-Avoid putting business logic, framework wiring, repositories, gateways, or project-specific decisions in `lib/`.
+### `infrastructure/` — Technical Implementations
 
-## Protocols and Wiring
+Infrastructure is the side-effect boundary. It contains concrete database,
+network, file, queue, and third-party integrations.
 
-- `domain/protocols/repository.py` defines generic persistence protocols for database communication.
-- `domain/protocols/*_gateway.py` defines external service protocols for third-party API communication.
-- `domain/protocols/unit_of_work.py` defines DB transaction behavior with repository properties plus `commit()` and `rollback()`.
-- Domain protocols must not import SQLModel, ORM models, HTTP clients, SDK objects, credentials, vendor DTOs, or infrastructure modules.
-- `infrastructure/repositories/*.py` implements database repository protocols.
-- `infrastructure/gateways/*.py` implements external service gateway protocols.
-- `infrastructure/unit_of_work.py` implements the DB transaction protocol.
-- `api/deps.py` wires concrete implementations into the application.
+- `persistence/db.py` creates the engine and session factory.
+- `persistence/models/` contains ORM/persistence shapes only.
+- `persistence/repositories/` implements domain repository ports.
+- `persistence/mappers/` translates ORM rows to domain objects and back.
+- `persistence/uow.py` implements the application Unit of Work and transaction
+  boundary.
+- `gateways/` implements external-service ports and normalizes vendor DTOs.
 
-All business logic lives in `domain/services/*.py` as pure functions. Domain services know nothing about database details, HTTP details, SDKs, credentials, vendor-specific payloads, or concrete infrastructure classes. They operate on typed app-owned values and chain `Result` / `Option`.
+Keep database transactions and external API calls separate by default. If a
+workflow needs reliable cross-system coordination, use an explicit outbox,
+saga, idempotency, or retry design rather than hiding the problem in UoW.
 
-## Operational Assets
+## Ports and Unit of Work
 
-- `Dockerfile` defines the production app image. Keep it focused on building and running the application, not storing local-only assets.
-- `compose.yaml` defines the production Compose stack. Use it for app/database/service orchestration, networks, volumes, healthchecks, and restart policy.
-- `entrypoint.sh` performs container startup work, then must `exec` the final app process.
-- `.env` is for local development values.
-- `.env.prod` is for production values or deployment-time placeholders. Do not commit real secrets.
-- `assets/` is for files that should stay outside the app image.
-- `postman/` is for shared manual API collections and environment files.
-- `scripts/` is for Bash black-box API workflow scripts that call the running service over HTTP. These scripts must not import application internals from `src/`.
-- `migrations/` is for Alembic database migrations only. Application runtime code must not live here.
-- `logs/` is for local runtime output. Commit only `.gitkeep` or documented sample logs when explicitly useful.
-- `docs/` is for human-facing project documentation, not generated runtime output.
+Define abstractions at the boundary that consumes them:
+
+```text
+application use case
+        ↓ depends on
+domain/application port
+        ↑ implemented by
+infrastructure adapter
+```
+
+Feature repository ports normally live next to the feature:
+
+```text
+domain/orders/repository.py       # protocol
+infrastructure/persistence/repositories/order.py  # implementation
+```
+
+The Unit of Work contract may live in `application/ports/unit_of_work.py` when
+it primarily serves use-case orchestration. A domain-owned `domain/uow.py` is
+also valid when the transaction abstraction is part of the domain contract.
+Choose one owner and keep the concrete implementation in infrastructure.
+
+The UoW owns transaction scope and exposes the repositories needed by a
+workflow. It controls `commit()` and `rollback()`. It should not become a bag
+for unrelated external gateways, configuration, or business rules.
+
+## Dependency Direction
+
+```text
+api ───────────────► application ───────────────► domain
+ │                         │                       ▲
+ │                         │                       │
+ └──── wiring ─────► infrastructure ──────────────┘
+```
+
+More precisely:
+
+- `api` may import application commands, use cases, and result translators.
+- `application` may import domain objects and ports.
+- `domain` imports no application, API, or infrastructure modules.
+- `infrastructure` imports the ports and domain types it implements.
+- `main.py`, `state.py`, and `api/deps.py` are composition-root code and may
+  assemble concrete infrastructure objects.
+
+## Feature Organization Rules
+
+- Find a feature's API, use cases, domain concepts, and adapters by following
+  the same feature name across layers.
+- Do not create a global `services.py` for unrelated workflows.
+- Do not create a global `models.py` containing API, domain, and ORM models.
+- Keep HTTP DTOs in `api/`, application commands/results in `application/`,
+  domain models in `domain/`, and ORM models in `infrastructure/`.
+- Use shared modules only when ownership is genuinely cross-feature. Avoid a
+  vague `common/` or `utils/` dumping ground.
+- One concept or cohesive use case per file. Split a file when its reason to
+  change becomes unclear.
 
 ## Tests
 
-| Sub-directory | Purpose | What goes inside |
-|---|---|---|
-| `tests/conftest.py` | Shared fixtures. | In-memory SQLite engine, `AsyncSession`, fake UoW, fake gateways. |
-| `tests/unit/domain/` | Pure logic tests with no database and no network. | Service tests using fake repositories and fake gateways. |
-| `tests/integration/infrastructure/` | Boundary tests against real or controlled dependencies. | Repository tests with SQLite; gateway tests with mocked HTTP/SDK boundaries. |
+```text
+tests/
+├── unit/
+│   ├── domain/       # No database, network, FastAPI, or real clock
+│   └── application/  # Fake ports/UoW; test workflows and failure paths
+├── integration/
+│   └── infrastructure/  # Real or controlled DB/gateway boundaries
+└── e2e/              # Running API tested as an outside client
+```
+
+Unit-test domain rules without I/O. Application tests use fake repositories,
+fake gateways, and a fake UoW. Integration tests verify repository mappings,
+transactions, and gateway adapters. End-to-end tests use the public API rather
+than importing application internals.
+
+## Operational Files
+
+- `Dockerfile` builds and runs the application image.
+- `compose.yaml` describes local or production service orchestration as the
+  project requires.
+- `entrypoint.sh` performs startup work and uses `exec` for the final process.
+- `.env` and `.env.prod` contain templates/placeholders, never real secrets.
+- `migrations/` contains Alembic migrations only.
+- `scripts/` contains black-box scripts that call the running API externally.
+- `postman/` contains shared manual API collections and environments.
+- `assets/` contains local or operational files intentionally excluded from the
+  application image.
+- `logs/` contains local runtime output and is normally gitignored.
+- `docs/` contains human-facing architecture, API, deployment, and runbook docs.
 
 ## Structural Rules
 
-- **Create core directories consistently.** For normal backend projects, create the listed structure even if some directories only contain placeholders. For tiny prototypes, reduce ceremony only when the user explicitly asks.
-- **Never place SQLModel ORM models in `domain/`.** ORM models live exclusively under `infrastructure/db/orm/`.
-- **Never place FastAPI routers in `domain/`.** HTTP layer lives exclusively under `api/`.
-- **Never place HTTP clients, third-party SDKs, vendor DTOs, credentials, or concrete API clients in `domain/`.** External service I/O lives under `infrastructure/gateways/` behind protocols from `domain/protocols/`.
-- **Never place business logic in `infrastructure/`.** Side-effect code goes there; decisions go in `domain/services/`.
-- **Do not put external API gateways inside the DB UnitOfWork by default.** Use separate gateway dependencies unless a real consistency pattern requires otherwise.
-- **Do not import application internals from black-box scripts.** Scripts under `scripts/` should test the API as an outside client.
-- **Do not commit generated logs.** Keep `logs/.gitkeep` if the directory should exist in git.
-- **Do not commit real secrets.** `.env` and `.env.prod` should be templates/placeholders unless the repository is strictly private and the user explicitly asks otherwise.
-- **Keep app images lean.** Do not copy `assets/`, `postman/`, `docs/`, generated logs, or black-box workflow artifacts into the production image unless explicitly required.
-- **One concept per file.** One entity, protocol, gateway, repository, mapper, or error family per file.
-- **Enums are exhaustive.** Every categorical value is an enum in `domain/enums/`. Raw strings for categories are forbidden.
-- **Errors are typed.** Every failure mode is a class in `domain/errors/`. Generic `Exception` or `ValueError` as function outputs are forbidden.
-- **Placeholder modules are allowed.** When a layer is not yet needed, create a minimal module with a docstring explaining its purpose and a `pass` or `...` body.
+- Keep handlers thin and use cases explicit.
+- Never put ORM models in `domain/` or `application/`.
+- Never put FastAPI request/response schemas in `domain/`.
+- Never put business workflow orchestration in `api/` or `infrastructure/`.
+- Never import concrete infrastructure classes from domain code.
+- Never leak vendor DTOs beyond the adapter that normalizes them.
+- Keep pure domain rules free of I/O and framework imports.
+- Define repository/gateway ports separately from their implementations.
+- Keep the Unit of Work focused on transaction scope; do not treat it as a
+  universal service container.
+- Use typed errors/results at layer boundaries. Do not use generic exceptions
+  as routine business outputs.
+- Use enums for meaningful finite state and category values; do not scatter
+  raw category strings throughout the domain.
+- Do not commit generated logs or real secrets.
+- Keep production images lean; copy only assets explicitly required at runtime.
+- Add an `application/` layer when handlers or domain services coordinate
+  repositories, transactions, or external services. Do not add it merely as an
+  empty ceremony for a tiny prototype.
+
+## When the Application Layer Is Missing
+
+Without an explicit application layer, orchestration usually leaks into one of
+two places:
+
+```text
+fat API handlers       or       impure domain services
+```
+
+Over time this causes duplicated workflows across HTTP, workers, and tests,
+transaction management mixed with HTTP concerns, domain code coupled to the
+database, harder unit tests, and unclear ownership of authorization and error
+translation. The application layer prevents this by giving each system action
+one reusable home while leaving domain rules independent of the delivery
+mechanism.
+
+The layer is a design responsibility, not a mandatory amount of ceremony. In a
+small project it may be a few modules. In a larger project it should be
+feature-oriented and explicit.

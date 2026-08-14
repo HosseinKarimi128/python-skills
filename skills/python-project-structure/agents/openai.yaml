@@ -1,0 +1,3 @@
+display_name: Python Project Structure
+short_description: Mandatory FastAPI/backend layout and structure rules.
+default_prompt: Create or refactor a Python backend to follow the required project structure.
