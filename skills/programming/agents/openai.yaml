@@ -1,4 +1,0 @@
-interface:
-  display_name: "Programming"
-  short_description: "Functional, typed Python engineering with BDD workflows."
-  default_prompt: "Use $programming for functional, typed Python implementation with Pyochain, Pydantic, and structured logging from user stories or BDD-style cases."
