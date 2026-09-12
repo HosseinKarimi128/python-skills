@@ -1,38 +1,56 @@
 # Python Quality Checklist
 
-Use this file as a quick implementation checklist when applying the skill.
+Use this as the short implementation checklist for `python-programmer`.
+
+## Structure
+
+- Follow the PostgreSQL-first `python-project-structure` skill.
+- Simple CRUD/query/report: `api -> SQL`.
+- Non-trivial business work: `api -> workflow -> domain / SQL / gateway`.
+- Keep modules flat until complexity requires grouping.
+- No ORM/repository/mapper/query-layer ceremony by default.
 
 ## Modeling
 
-- Use `attrs` for domain objects and input containers.
-- Freeze value objects when mutation is unnecessary.
-- Keep invariants close to construction with validators and converters.
-- Prefer explicit domain types over loose dictionaries.
+- External I/O uses Pydantic.
+- Domain contains only data-only `Enum`, frozen slotted `dataclass`, and `Protocol` classes.
+- No executable functions in domain modules.
+- No classes in workflow modules.
+- Expected errors are typed immutable values in upper-level `error.py`.
+- Avoid `Any` and weak untyped dictionaries.
 
-## Control Flow
+## Functions
 
-- Prefer `returns.result.Result` for expected failures.
-- Define structured error types before reaching for broad exception handling.
-- Convert external exceptions into domain failures at boundaries.
-- Keep decision-making in pure functions when practical.
+- Every executable business function is fully annotated.
+- Helpers start with `_`, remain module-private, and return `Result` or `Maybe`.
+- Pipeline success values are domain dataclasses/enums, never primitives.
+- Prefer fluent `returns` chaining over manual unwrapping.
+- Prefer `singledispatch` for behavior varying by first domain argument type.
+- Prefer iterator transformations to imperative loops when clearer.
 
-## Typing
+## Errors
 
-- Add precise annotations for every new public function.
-- Avoid introducing new `Any`, implicit `Optional`, or ambiguous unions.
-- Prefer protocols or aliases when they reduce repetition and clarify intent.
-- Remove casts by improving validation or type modeling first.
+- Expected failures use `Failure(ErrorValue(...))`.
+- `try/except` belongs only at genuine DB/gateway I/O boundaries.
+- Boundary exceptions are converted immediately to typed failures.
+- A global exception handler is last-resort only.
 
-## Code Shape
+## Logging
 
-- Prefer clear abstractions over repetitive boilerplate.
-- Keep modules cohesive and dependency direction obvious.
-- Separate I/O, parsing, domain logic, and formatting.
-- Avoid flag arguments and large god-functions.
+- Decorate every executable business operation with the shared logging decorator.
+- Exclude logger internals and the low-level DB log sink.
+- Emit JSON stdout and persist to the `logs` table.
+- Preserve the original business Result even if logging persistence fails.
+- Include correlation context and redact secrets/PII.
+- Production tracebacks off; debug tracebacks may be enabled by environment.
 
 ## Verification
 
-- Run targeted `pytest` coverage for changed behavior.
-- Check `Success` and `Failure` paths explicitly.
-- Run `ruff` and `ty` on touched files when available.
-- Document any validation you could not run.
+- Test `Success` / `Failure`.
+- Test `Some` / `Nothing`.
+- Test singledispatch variants/default failure where used.
+- Run focused `pytest`.
+- Run `ruff`.
+- Run `ty`.
+- Run `basedpyright .` and resolve errors.
+- Report any check that could not run.
