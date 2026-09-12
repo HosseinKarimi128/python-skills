@@ -2,52 +2,126 @@
 name: python-quality
 
 description: >
-  Ruff, ty, and static analysis discipline for Python.
-  Treat linting and static analysis as delivery gates, not optional polish.
-  Prefer structural fixes over suppressions.
-  Use loguru for all logging; write application logs fully and professionally.
+  Strict typing, quality gates, formatting, and structured observability rules for
+  functional Python backends.
 ---
 
-# Python Quality and Tooling Discipline
+# Python Quality and Observability
 
-## Ruff and ty Discipline
+## Type and Static-Analysis Discipline
 
-- Write code that is clean enough to pass `ruff` without style-only rewrites afterward.
-- Keep imports organized, remove dead code, and avoid overly complex branches or unused intermediate variables.
-- Prefer straightforward expressions and clear naming over clever compactness.
-- Prefer vertical formatting for readability and stable diffs:
-  - chained calls are written one `.` call per line,
-  - function calls with multiple arguments are split so each argument appears on its own indented line with a trailing comma.
-- Check that new code is compatible with `ty` expectations: no ambiguous return types, no unchecked `None` paths, and no mismatched container types.
-- Treat linting and static analysis as delivery gates, not optional polish. If the project has `ruff`, `ty`, SonarLint, or SonarQube rules configured, aim to satisfy them in the generated code rather than leaving cleanup for later.
-- Prefer structural fixes over escapes: tighten types, use constrained aliases or validators, simplify control flow, and remove dead branches before reaching for casts, ignores, or suppressions.
-- If a suppression is truly required, keep it narrow, explain why in a brief comment when the file style allows it, and avoid introducing broad file-level disables.
-- Before finishing, run the narrowest relevant `ruff` and `ty` checks on the changed files when those tools are available. If local Sonar linting is available, run it too; otherwise, proactively avoid common Sonar issues such as constant-return validators, duplicated branches, needless conditionals, and overly complex methods.
+- Every function/method has explicit parameter and return annotations.
+- Avoid `Any`, weak dictionaries, implicit optional values, and ambiguous unions.
+- Prefer exact types, `object`, Protocols, aliases, and typed containers.
+- Prefer immutable values and structural fixes over casts/ignores.
+- Keep imports clean and remove dead code while touching a module.
 
-## Logging with loguru
+Delivery gates:
 
-- **Use `loguru` for all application logging.** Do not use the standard library `logging` module directly.
-- Configure a single `loguru` logger in `main.py` or a dedicated `lib/logging_config.py` with structured, production-ready settings:
-  - JSON serialization for production environments.
-  - Rotation, retention, and compression for log files.
-  - Consistent log levels (`TRACE`, `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`).
-- **Write application logs fully and professionally.** Every significant operation, decision point, and boundary crossing must be logged with enough context to reconstruct the flow without reading source code.
-  - Log at `INFO` or higher for: request lifecycle events, service entry/exit, repository operations, external API calls, and configuration loads.
-  - Log at `DEBUG` for: detailed internal state, parsed payloads, mapper transformations, and query parameters.
-  - Log at `WARNING` for: recoverable issues, retries, degraded states, and non-critical validation failures.
-  - Log at `ERROR` for: unrecoverable domain failures, repository exceptions, and boundary errors that propagate as `returns.Failure`.
-  - Log at `CRITICAL` for: startup failures, fatal misconfigurations, and unhandled exceptions that terminate the process.
-- Include structured context in every log call: correlation IDs, user IDs, request paths, operation names, and relevant Pydantic model fields (sanitized of secrets).
-- Never log sensitive data (passwords, tokens, PII) at any level. Use explicit redaction or field exclusion.
-- Use `loguru`'s `bind()` and `contextualize()` to attach persistent context (e.g., request-scoped correlation ID) rather than repeating it in every manual call.
-- When catching exceptions at boundaries, log the full exception chain with `logger.exception()` or `logger.opt(exception=True).error(...)` before wrapping into `returns.Failure`.
-- Ensure log messages are complete sentences with proper capitalization and punctuation. Avoid cryptic abbreviations or single-word messages.
-- Example of a professional log entry:
-  ```python
-  logger.info(
-      "User registration completed successfully.",
-      user_id=str(user.id),
-      email_domain=user.email.split("@")[-1],
-      duration_ms=elapsed,
-  )
-  ```
+```text
+pytest
+ruff
+ty
+basedpyright .
+```
+
+Resolve basedpyright errors; warnings may remain. If `ty` and basedpyright disagree,
+prefer a `ty`-compatible design while keeping basedpyright errors resolved.
+
+## Formatting
+
+Keep fluent chains vertical:
+
+```python
+result
+.map(step_one)
+.bind(step_two)
+.lash(recover)
+```
+
+For non-trivial multiline calls, put arguments one per line with trailing commas.
+Prefer readable intermediate names over dense expressions.
+
+## Structured Logging Decorator
+
+Use one reusable higher-order logging decorator for executable business operations.
+Apply it to API/business handlers, workflow helpers/pipelines, and other executable
+business boundary operations. Logging implementation functions and the low-level DB
+log sink are exempt to prevent recursion.
+
+Use `loguru` for application logging unless the project already has an explicitly
+chosen structured logger.
+
+Every decorated operation must emit:
+
+1. JSON to stdout;
+2. a structured row in PostgreSQL `logs`.
+
+The logging decorator must preserve the original return container. A logging/storage
+failure must not turn a business `Success` into `Failure` or replace an existing
+business failure.
+
+Recommended log fields:
+
+```text
+log_id
+created_at
+correlation_id
+file_name
+function_name
+input_args
+output
+status          # success | note | fail | warn
+duration_ms
+error_type
+```
+
+## Correlation and Redaction
+
+Attach request/workflow correlation context consistently. Prefer context-local bound
+values rather than manually passing correlation IDs through every function.
+
+Never log:
+
+- passwords;
+- access/refresh tokens;
+- API keys;
+- private credentials;
+- raw secrets;
+- sensitive PII unless explicitly sanitized and required.
+
+Sanitize inputs/outputs before writing either stdout or database logs.
+
+## Traceback Policy
+
+Expected failures are typed `Failure` values, not tracebacks.
+
+Production defaults:
+
+```text
+LOG_LEVEL=INFO
+LOG_TRACEBACKS=false
+```
+
+Development/debug may use:
+
+```text
+LOG_LEVEL=DEBUG
+LOG_TRACEBACKS=true
+```
+
+When traceback output is enabled, it is diagnostic metadata only. Expected control
+flow still returns typed `Failure` values.
+
+Do not use `logger.exception()`/automatic traceback output for routine expected
+failures. Boundary wrappers may include exception details in debug mode when they
+convert an external exception into a typed failure.
+
+## No Unhandled Expected Errors
+
+Expected database/gateway errors must be caught at their I/O boundary and converted
+into typed failures. Business code must not rely on uncaught exceptions.
+
+A global framework exception handler may remain as a last-resort guard for genuine
+programmer/runtime faults. In production it should return a safe 500 response and
+avoid uncontrolled traceback output to stdout.
