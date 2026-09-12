@@ -1,4 +1,4 @@
 interface:
   display_name: "Python Programmer"
-  short_description: "Python coding workflow with strong quality gates"
-  default_prompt: "Use $python-programmer to implement this Python change with attrs, returns, ty, ruff, and pytest discipline."
+  short_description: "Typed functional Python with Result pipelines and PostgreSQL-first structure"
+  default_prompt: "Use $python-programmer to implement this Python change with Pydantic at external I/O boundaries, functions-only workflows, domain dataclasses/enums/protocols, returns.Result/Maybe pipelines, singledispatch where type-driven behavior fits, structured JSON+DB logging, pytest, ruff, ty, and basedpyright discipline."
