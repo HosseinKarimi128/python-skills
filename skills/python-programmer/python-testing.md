@@ -2,20 +2,44 @@
 name: python-testing
 
 description: >
-  pytest workflow and test patterns for Python projects using returns.
-  Test both Success and Failure paths, Some/Nothing branches, and assert on structured
-  error values rather than message text.
+  Pytest rules for Result/Maybe workflows, singledispatch behavior, HTTP adapters,
+  and I/O-boundary failure conversion.
 ---
 
 # Python Testing Workflow
 
-## Testing Workflow
+Use `pytest` and keep tests focused on observable typed behavior.
 
-- Add or update `pytest` tests when behavior changes, regressions are plausible, or validation/error handling is introduced.
-- Prefer focused unit tests around pure logic and small integration tests at boundaries.
-- Test both `Success` and `Failure` paths for `returns.Result`-based flows.
-- Test `Some`/`Nothing` branches for `returns` pipelines.
-- Assert that functions return `returns.Result[PydanticModel]` and that the wrapped Pydantic model contains the expected fields.
-- Assert on structured error values, not only on message text.
-- Keep fixtures small and local unless reuse clearly improves readability.
-- Run the narrowest relevant test selection first, then expand if the risk profile warrants it.
+## Required Coverage
+
+When behavior changes, test the relevant cases:
+
+- `Success` and `Failure` branches for Result-returning functions;
+- `Some` and `Nothing` branches for Maybe-returning helpers;
+- each meaningful `singledispatch` registration;
+- the default singledispatch unsupported-type `Failure`;
+- workflow pipeline composition with domain dataclasses/enums;
+- API Result-to-HTTP response/error mapping;
+- gateway/database external-exception-to-typed-Failure mapping;
+- Pydantic boundary validation for external payloads;
+- logging redaction/correlation/result preservation when logging behavior changes.
+
+Assert on typed values and structured fields, not only message strings.
+
+## Test Shape
+
+- Prefer focused unit tests for private computational helpers and workflow pipelines.
+- Prefer integration tests for SQL execution, PostgreSQL behavior, and gateways.
+- Use e2e tests for public HTTP behavior when needed.
+- Keep fixtures small/local until real reuse justifies shared fixtures.
+- Do not mock domain dataclasses/enums unnecessarily; construct real immutable values.
+- Test expected failures as `Failure(ErrorType(...))`, not raised exceptions.
+
+## Verification Order
+
+1. Run the narrowest affected pytest selection.
+2. Expand to the relevant package/suite when risk warrants it.
+3. Run `ruff`.
+4. Run `ty`.
+5. Run `basedpyright .` and resolve errors.
+6. Report clearly if a required check could not be executed.
