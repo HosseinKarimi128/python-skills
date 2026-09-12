@@ -12,7 +12,7 @@ overlapping skill documents.
 
 | Skill | Purpose |
 |---|---|
-| `python-programmer` | Canonical PostgreSQL-first Python backend guidance: project structure, SQL-first persistence, Pydantic external I/O, domain dataclasses/enums/protocols, functions-only workflows, `returns.Result`/`Maybe`, `singledispatch`, structured logging, `pytest`, `ruff`, `ty`, and `basedpyright`. |
+| `postgres-first-python` | **Postgres-First Python** — canonical PostgreSQL-first Python backend guidance: project structure, SQL-first persistence, Pydantic external I/O, domain dataclasses/enums/protocols, functions-only workflows, `returns.Result`/`Maybe`, `singledispatch`, structured logging, `pytest`, `ruff`, `ty`, and `basedpyright`. |
 
 ## Repository Layout
 
@@ -20,13 +20,13 @@ overlapping skill documents.
 .
 ├── README.md
 └── skills/
-    └── python-programmer/
+    └── postgres-first-python/
         ├── SKILL.md
         └── agents/
             └── openai.yaml
 ```
 
-`skills/python-programmer/SKILL.md` is the single authoritative rule document.
+`skills/postgres-first-python/SKILL.md` is the single authoritative rule document.
 
 ## Installation
 
@@ -34,7 +34,7 @@ Copy the skill into the skills directory used by your coding agent:
 
 ```bash
 mkdir -p <skills-dir>
-cp -R skills/python-programmer <skills-dir>/
+cp -R skills/postgres-first-python <skills-dir>/
 ```
 
 If your agent loads skills directly from this repository, point it at `skills/`
@@ -43,7 +43,7 @@ instead.
 ## Usage
 
 ```text
-Use $python-programmer to implement or refactor this Python backend.
+Use $postgres-first-python to implement or refactor this Python backend.
 ```
 
 The skill covers both architecture and programming behavior, including:
@@ -66,7 +66,7 @@ The skill covers both architecture and programming behavior, including:
 Edit only the canonical rule document:
 
 ```text
-skills/python-programmer/SKILL.md
+skills/postgres-first-python/SKILL.md
 ```
 
 Keep rules concrete, internally consistent, and agent-actionable. Avoid adding
