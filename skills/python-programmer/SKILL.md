@@ -2,190 +2,389 @@
 name: python-programmer
 
 description: >
-  Production-grade Python skill for type-safe, validation-heavy,
-  test-driven code. Prefer attrs, Pydantic, pytest, ruff, ty,
-  and returns-style functional pipelines.
+  Functional, strongly typed Python rules for PostgreSQL-first FastAPI backends.
+  Use Pydantic at external I/O boundaries, domain dataclasses/enums/protocols for
+  business types, returns.Result/Maybe for explicit control flow, and functions-only
+  workflows with strict quality and observability rules.
 ---
 
 # Python Programmer
 
-Use this skill for Python work that must be clean, typed, tested, and production-ready.
+Use these rules for production Python code. Keep the design functional, explicit,
+typed, small, and aligned with the `python-project-structure` skill.
 
-## Important Notes
+## Architecture in One Minute
 
-- Use the `returns` package for explicit success, failure, and optional values.
-- Avoid OOP principle. Put functional programming approach first.
-- Prefer functions over classes. If a class is necessary, you must use `attrs` and avoid using `__init__` method.
-- If there is a design decision, a complex problem, or task ambiguity, discuss it with the user first before taking action.
-- Write type-safe code using Pydantic models for validated I/O boundaries and `returns` utilities for functional control flow.
-- Write code in a pipe-like vertical style:
-  - each chained `.` call goes on its own line,
-  - when the function argument are more then 3, each argument goes on its own line in multiline calls.
-- Use explicit typed models and errors instead of loose primitives or untyped dicts.
-- Avoid `Any` in all code you write or modify. Treat `Any` as a last-resort escape hatch that requires strong justification, and prefer exact domain types, `Protocol`s, recursive JSON aliases, `object`, `TypeAdapter`, or other concrete typed boundaries instead.
-- Log everythings! Log using `loguru` lib.
-
-## Type Discipline — Three Kinds of Domain Types
-
-Every value that crosses a function boundary must have an explicit type. There are three categories, each with a dedicated home:
-
-### 1. I/O Contracts — Pydantic `BaseModel` (validation at the edge)
-
-**Only** HTTP request bodies, response bodies, path/query params, and external API payloads use Pydantic. These live in `domain/models/` and are suffixed with `Request`, `Response`, `PathRequest`, `QueryRequest`, etc.
-
-```python
-class CreateUserRequest(BaseModel):
-    """POST /api/v1/users"""
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
-    name: str = Field(min_length=1)
-    mobile: str = Field(min_length=1)
+```text
+api/       HTTP boundary; Pydantic request/response models
+workflow/  non-trivial business orchestration; functions only
+domain/    data-only Enum, frozen dataclass, and Protocol classes
+db/        generic PostgreSQL execution/lifecycle machinery
+gateway/   concrete external-system adapters; Pydantic at external I/O
+error.py   typed application failure values
+sql/       all runtime SQL and SQL migrations
 ```
 
-### 2. Internal Communication Types — Plain Python (zero validation overhead)
+Normal paths:
 
-Types that pass between domain services, repositories, and protocols must **NOT** subclass Pydantic. They are pure data carriers and must be plain `@dataclass(frozen=True, slots=True)` instances, `NamedTuple`, or simple `type` aliases. These also live in `domain/models/` but are **not** I/O models — they are internal value objects.
+```text
+simple CRUD/query/report:
+api -> db/sql -> .sql -> PostgreSQL
+
+business workflow:
+api -> workflow -> domain / db/sql / gateway
+```
+
+Do not reintroduce ORM, repository, mapper, query-layer, mandatory workflow, or
+repository-style Unit of Work ceremony unless a concrete requirement justifies it.
+
+## Type Discipline
+
+- Every function and method must have explicit parameter and `->` return annotations.
+- Avoid `Any`, `dict[str, Any]`, `list[Any]`, implicit optionals, and weakly typed
+  boundaries. Use exact types, `object`, Protocols, aliases, or typed containers.
+- Prefer immutable values. Domain dataclasses use `@dataclass(frozen=True, slots=True)`.
+- Use meaningful typed values instead of unstructured dictionaries when data has
+  business meaning.
+- Do not use `attrs` by default.
+
+## Pydantic Is Mandatory at External I/O Boundaries
+
+Use Pydantic for data entering or leaving the application through an external
+boundary, including:
+
+- FastAPI request, response, path, and query models;
+- gateway provider request/response payloads;
+- configuration/environment input;
+- queue/event payloads, files, CLI input, or other external payloads when present.
+
+Validate external data immediately at the boundary.
+
+Do not put Pydantic models in `domain/` or `workflow/`.
+Do not create database-specific Pydantic models merely to duplicate SQL result
+shapes. SQL is executed directly from `.sql` files; direct CRUD endpoints may
+validate returned rows into their API response model, and workflows may convert
+rows into domain dataclasses when a business type is actually needed.
+
+## Domain Rules
+
+Keep `domain/` flat by default. A domain module may define only data/contract
+classes of these kinds:
+
+1. `Enum` / `StrEnum`
+2. `@dataclass(frozen=True, slots=True)`
+3. `Protocol`
+
+Domain modules contain no executable functions. Dataclasses are data-only: do not
+add business methods, helper methods, properties, or I/O behavior. Protocol methods
+contain signatures only.
+
+Define a Protocol only when a workflow genuinely needs an abstract contract. Most
+ordinary web-backend operations need no Protocol. Never create repository Protocols
+just to hide PostgreSQL.
+
+## Error Values
+
+Expected failures are values, not exception-based business control flow.
+Define application failure types in the upper-level `error.py`, normally as frozen
+slotted dataclasses or enums. Do not require them to inherit from `Exception`.
 
 ```python
-from dataclasses import dataclass
+@dataclass(frozen=True, slots=True)
+class UserNotFound:
+    user_id: UUID
+
 
 @dataclass(frozen=True, slots=True)
-class RouteIntentDecision:
-    """Structured decision returned by intent classification."""
-    decision: str = "clarify"
-    query: str | None = None
-    fetch_hint: str | None = None
-    reason: str | None = None
-    conversation_title: str | None = None
-
-@dataclass(frozen=True, slots=True)
-class EbornixExecuteResult:
-    """Structured response from ebornix query execution."""
-    duckdb_path: str
-    duckdb_table: str
-    row_count: int
+class PaymentUnavailable:
+    provider: str
 ```
 
-Why plain types for internals?
-- **No runtime validation overhead** — internal code already trusts its own types.
-- **Immutable by default** — `frozen=True` gives Rust-like semantics.
-- **Clean pattern matching** — `match` on `dataclass` instances is exhaustive and readable.
-- **Explicit nullability** — use `returns.Maybe` instead of `None` when absence is meaningful.
+Every expected failure that callers may need to handle must have an explicit typed
+variant.
 
-### 3. Error Variants — Typed exceptions in `domain/errors/`
+## `returns` Is the Default Control-Flow Model
 
-Every failure mode is a named type inheriting from `DomainError`. These are the `E` in `Result[T, E]`.
+Use `returns` for expected success, failure, and absence.
+
+```text
+Result[T, E] -> Success(T) | Failure(E)
+Maybe[T]     -> Some(T) | Nothing
+```
+
+All executable business functions return a `Result[T, E]`, except private workflow
+helpers that may return `Maybe[T]` when absence is the only alternative.
+
+Never return a bare business success value from a pipeline/API/gateway operation.
+Never use `None` as an implicit failure signal when `Maybe` expresses the contract.
+
+Prefer fluent container operations such as:
+
+```text
+.map(...)
+.bind(...)
+.lash(...)
+.alt(...)
+.value_or(...)
+```
+
+Prefer chained `.` composition over match-first or nested conditional handling when
+the flow can remain linear. Use `match` when there is a genuine finite business
+branch, especially enum values; do not use it merely to unwrap every Result.
+
+## Workflow Rules
+
+`workflow/` contains functions only. Never define classes there.
+
+There are two workflow function kinds.
+
+### Helper functions
+
+- Name starts with `_`.
+- Private to the module; never import it from another file.
+- Performs computational/transformation work, not a business workflow.
+- May accept and return primitives.
+- Returns `Result[T, E]` or `Maybe[T]`.
+- A helper success type may be primitive.
 
 ```python
-class DomainError(Exception):
-    def __init__(self, message: str) -> None:
-        self.message = message
-        super().__init__(message)
-
-class EbornixError(DomainError): ...
-class LLMGatewayError(DomainError): ...
-class UserNotFoundError(DomainError): ...
+def _calculate_total(
+    subtotal: Decimal,
+    tax: Decimal,
+) -> Result[Decimal, AppError]:
+    ...
 ```
 
-### 4. Enums — Exhaustive tagged unions in `domain/enums/`
+### Pipeline functions
 
-Every discriminated union or state machine uses an `enum.Enum` or `enum.StrEnum`. These enable exhaustive `match-case` branching, eliminating open-ended `if-elif` chains.
+- Public functions representing business work.
+- Orchestrate helpers and, when useful, other pipeline functions.
+- Accept business-typed domain values when operating inside the business layer.
+- Return `Result[SuccessType, FailureType]`.
+- `SuccessType` must not be a primitive. It must be a domain dataclass or enum.
+- Compose work primarily through `Result`/`Maybe` chaining.
 
 ```python
-from enum import StrEnum
-
-class IntentDecision(StrEnum):
-    CLARIFY = "clarify"
-    FETCH = "fetch"
-    ANALYTICAL = "analytical"
+def checkout_order(
+    order: Order,
+    payment: PaymentProvider,
+) -> Result[CheckoutResult, AppError]:
+    ...
 ```
 
-## Required Workflow
+Pipeline functions should describe business actions, not simple CRUD wrappers.
 
-- Read the relevant code, tests, and call sites before editing.
-- Make the smallest safe change that solves the task.
-- Add or update `pytest` tests for behavior changes.
-- Run the tests you add or change.
-- Run `basedpyright .`, `ruff`, and `ty`, and finish only when they pass.
-- For `basedpyright`, fix errors only and skip warnings.
-- If `ty` and `basedpyright` conflict, prefer `ty`-compatible fixes while keeping `basedpyright` errors resolved.
-- If a check cannot be run or still fails, say so clearly.
+## API Function Rules
 
-## Coding Rules
+API functions follow the same Result discipline, but their boundary types are
+Pydantic models rather than domain dataclasses.
 
-- Prefer small pure functions and immutable-style transformations.
-- Keep side effects at boundaries.
-- Use protocols to generalize the mutual behaviors. Use Protocol subclassing as we use trait in Rust.
-- Use enums as we do by subclassing enum. Pydantic BaseModel is reserved for I/O contracts ONLY.
-- You should define traits in `/protocols`, so functions in `/services` could implement them. (python duck typing)
-- All functions should have typing hints. Function inputs and outputs that cross service boundaries must be plain `@dataclass(frozen=True, slots=True)` value objects or enums unless they are validated I/O models.
-- The above points are true for function arguments.
-- Use `returns` utilities for type definitions. It helps you to define type models, as we define `Struct` in Rust.
-- Validate I/O immediately with Pydantic.
-- You MUST use typed contracts over bare primitives when values have domain meaning. `returns` would help you with it.
-- Do not introduce `typing.Any` or `dict[str, Any]` / `list[Any]` style annotations unless the user explicitly asks for a looser boundary or no exact type is realistically expressible. If a third-party API leaks weak typing, contain it at the boundary and convert it immediately into an exact typed model.
-- Match existing public interfaces unless the task requires changing them.
-- Avoid unnecessary abstraction and inheritance.
-- Prefer operation chaining over case branching when the flow can stay linear.
-- **No `try`/`except` in business logic.** Convert all potentially-raising operations into `returns.Result[T, E]` via `safe` / `future_safe` wrappers and model failure with typed error types.
-- **Prefer pattern matching over `if-elif` only when branching is unavoidable.** Use `match-case` on `Result`, `Maybe`, and enums for exhaustive branching.
-
-## Pattern Matching Over Result and Maybe
-
-Instead of chaining `.is_success()`, `.is_some()`, or `.unwrap()`, use `match` for exhaustive, readable branching:
+A route operation should normally return conceptually:
 
 ```python
-def handle_result(result: Result[User, DomainError]) -> UserResponse:
-    match result:
-        case Success(user):
-            return UserResponse.from_domain(user)
-        case Failure(UserNotFoundError() as err):
-            raise HTTPException(status_code=404, detail=err.message)
-        case Failure(PermissionDeniedError() as err):
-            raise HTTPException(status_code=403, detail=err.message)
-        case Failure(err):
-            raise HTTPException(status_code=500, detail=err.message)
+Result[ResponseModel, AppError]
 ```
 
-For `Maybe`:
+Use one centralized HTTP Result adapter/decorator to translate:
+
+```text
+Success(ResponseModel) -> normal FastAPI response
+Failure(NotFound)      -> mapped 404
+Failure(InvalidInput)  -> mapped 400/422
+Failure(DependencyDown)-> mapped 503
+Failure(Unexpected)    -> mapped 500
+```
+
+Do not duplicate Result-to-HTTP `match`/`if` logic in every route.
+Simple CRUD/query/report routes may execute SQL directly through `db/sql` without a
+workflow module.
+
+## Gateway and Database Boundaries
+
+`try/except` is not business control flow.
+
+- Do not write `try/except` in workflow/domain/API business logic.
+- Catch external/library exceptions only at genuine I/O boundaries such as
+  database and gateway implementations.
+- Convert expected boundary exceptions immediately into typed `Failure(...)` values.
+- Keep provider payloads validated by Pydantic inside gateways.
+- Keep SQL in `.sql` files; Python only loads/executes the statement and handles the
+  typed result/failure boundary.
+
+A global framework exception handler may exist only as a last-resort safety net for
+unexpected programmer/runtime failures. It must not replace typed expected failures.
+
+## Type-Driven Dispatch with `functools.singledispatch`
+
+Prefer `@singledispatch` when behavior naturally varies by the runtime type of the
+first domain argument. This is the preferred Python approximation of Elixir-style
+function clauses for type-based business behavior.
 
 ```python
-def find_user(users: Vec[User], user_id: int) -> Maybe[User]:
-    return users.iter().find(lambda u: u.id == user_id)
+@singledispatch
+def calculate_price(
+    item: object,
+) -> Result[Price, AppError]:
+    return Failure(
+        UnsupportedDomainType(type_name=type(item).__name__),
+    )
 
-match find_user(all_users, 42):
-    case Some(user):
-        return user
-    case Nothing:
-        raise HTTPException(status_code=404, detail="User not found")
+
+@calculate_price.register
+def _(
+    item: PhysicalProduct,
+) -> Result[Price, AppError]:
+    ...
+
+
+@calculate_price.register
+def _(
+    item: SubscriptionProduct,
+) -> Result[Price, AppError]:
+    ...
 ```
 
-For enums:
+Rules:
 
-```python
-match intent.decision:
-    case IntentDecision.CLARIFY:
-        return clarify_response(prompt)
-    case IntentDecision.FETCH:
-        return fetch_response(prompt)
-    case IntentDecision.ANALYTICAL:
-        return analytical_response(prompt)
+- Prefer `singledispatch` over `isinstance` chains when dispatch is truly type-based.
+- The default implementation returns a typed `Failure`; do not raise
+  `NotImplementedError` for an expected unsupported type.
+- Dispatch is on the first argument's runtime class only.
+- Do not use `singledispatch` to distinguish members of the same Enum; use explicit
+  enum branching for that.
+- Registered implementations remain functions; do not introduce service classes.
+
+## Functional Collection Processing
+
+Avoid imperative `for` loops when a transformation can be expressed clearly with
+iterator operations.
+
+Prefer:
+
+- `map` and `filter`;
+- generator/comprehension forms when clearer;
+- `itertools` for lazy composition;
+- `returns.iterables.Fold` when composing collections of `Result`/`Maybe` values.
+
+Use fluent `.iter().map().filter()` style only when the concrete iterable abstraction
+in the project actually provides that API; Python stdlib `itertools` itself does not.
+
+## Logging and Observability
+
+Define one reusable higher-order logging decorator and apply it to every executable
+business function/operation. Logging implementation functions and the low-level DB
+log sink are exempt to prevent recursive logging.
+
+The decorator must:
+
+- emit structured JSON to stdout;
+- persist a structured record to the PostgreSQL `logs` table;
+- record function/file identity, sanitized inputs, output/failure, status, duration,
+  and correlation context;
+- preserve the original `Success`/`Failure`; logging failure must not change the
+  business result;
+- redact secrets, tokens, passwords, credentials, and sensitive payload fields.
+
+Recommended log fields:
+
+```text
+log_id
+created_at
+correlation_id
+file_name
+function_name
+input_args
+output
+status          # success | note | fail | warn
+duration_ms
+error_type
 ```
 
-Use enums as the discriminant for pattern matching whenever the branch set is finite and meaningful.
+Production stdout remains JSON and should not include tracebacks by default.
+Control diagnostic verbosity with environment configuration such as:
 
-## Testing Rules
+```text
+LOG_LEVEL=INFO
+LOG_TRACEBACKS=false
+```
 
-- Use `pytest`.
-- Test success and failure paths.
-- Assert on structured typed values, not just message text.
-- Prefer focused unit tests first, then broader tests if needed.
+Development/debug may enable:
 
-## Quality Gate
+```text
+LOG_LEVEL=DEBUG
+LOG_TRACEBACKS=true
+```
 
-- Code must pass `basedpyright .`.
-- Code must pass `ruff`.
-- Code must pass `ty`.
-- `basedpyright` warnings are allowed; prioritize resolving `basedpyright` errors.
-- When `ty` and `basedpyright` disagree, `ty` is the source of truth.
-- Keep formatting readable and diff-friendly.
-- Prefer structural fixes over ignores or suppressions.
+Tracebacks are diagnostic detail only. Even in debug mode, expected failures remain
+`Failure` values and callers handle them normally.
+
+## Formatting
+
+- Keep fluent chains vertical: one chained `.` call per line.
+- For non-trivial multiline calls, put arguments one per line with trailing commas.
+- Prefer small, named functions over deeply nested expressions.
+- Keep modules flat until actual complexity requires grouping.
+
+## Testing
+
+Use `pytest`.
+
+Test:
+
+- `Success` and `Failure` paths;
+- `Some` and `Nothing` paths;
+- every meaningful `singledispatch` variant and its default failure;
+- HTTP Result-to-response/error mapping;
+- gateway/database exception-to-Failure mapping;
+- business pipeline behavior using typed domain values.
+
+Assert on typed structured values, not only error-message text.
+
+## Delivery Quality Gate
+
+Before finishing a change:
+
+1. Read the relevant implementation, tests, and call sites.
+2. Make the smallest safe change that satisfies the task.
+3. Add/update focused `pytest` tests for behavior changes.
+4. Run the relevant tests.
+5. Run `ruff`.
+6. Run `ty`.
+7. Run `basedpyright .`; resolve errors, warnings may remain.
+8. If `ty` and basedpyright disagree, prefer a `ty`-compatible solution while keeping
+   basedpyright errors resolved.
+9. Prefer structural fixes over casts, ignores, or suppressions.
+10. State clearly if a required check could not be run or still fails.
+
+## Agent Checklist
+
+Before writing code, determine:
+
+```text
+External I/O?
+    -> Pydantic boundary model
+
+Simple database operation?
+    -> API -> SQL directly
+
+Non-trivial business orchestration?
+    -> workflow pipeline function
+
+Pure computational step inside workflow?
+    -> private _helper function
+
+Business data/contract type?
+    -> domain Enum / frozen dataclass / Protocol
+
+Expected failure?
+    -> typed value in error.py + Failure(...)
+
+Behavior varies by first domain argument type?
+    -> singledispatch
+
+External exception?
+    -> catch only in DB/gateway boundary and convert to Failure
+```
+
+Do not create abstractions, classes, models, or layers unless these rules give them a
+real responsibility.
