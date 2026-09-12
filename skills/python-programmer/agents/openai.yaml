@@ -1,4 +1,0 @@
-interface:
-  display_name: "Python Programmer"
-  short_description: "Canonical PostgreSQL-first Python backend architecture and programming rules"
-  default_prompt: "Use $python-programmer as the single source of truth for this Python backend change: follow its PostgreSQL-first structure, Pydantic I/O boundaries, typed Result/Maybe workflows, domain dataclasses/enums/protocols, SQL-file rules, logging, testing, and quality gates."
