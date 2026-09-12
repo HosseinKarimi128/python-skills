@@ -2,81 +2,131 @@
 name: python-functional
 
 description: >
-  Functional programming principles for Python: pure functions, function composition,
-  returns usage (Result, Maybe, combinators), Protocol-based traits, pattern matching
-  with match-case, and explicit error types. Prefer functions over classes.
+  Functional Python rules for typed workflows using returns.Result/Maybe,
+  private helpers, business pipelines, singledispatch, and iterator-based
+  transformations.
 ---
 
 # Python Functional Programming
 
-## Functional Programming First
+## Functional First
 
-- **Prefer functions over classes**. Encode behavior as small, pure, composable functions rather than class methods.
-- Keep functions short enough to read in one pass. Extract pure functions from mixed side-effect code before larger reorganizations.
-- Use function composition and piping (via `returns`) to chain transformations left-to-right.
-- **Write fluent chains vertically.** Never collapse chained calls onto one line like `obj.st().st().st()`; format as:
-  ```python
-  obj
-  .st()
-  .st()
-  .st()
-  ```
-- **Write multiline call arguments one-per-line** when there are multiple arguments or the call is not trivially short; use:
-  ```python
-  func(
-      arg1,
-      arg2,
-      arg3,
-  )
-  ```
-- Keep side effects at the edges: file access, network calls, database operations, and CLI/UI behavior.
-- Avoid hidden mutation; return new values when that improves predictability.
-- Avoid boolean flag arguments when separate functions or richer types describe intent better.
-- Replace repeated conditional or transformation logic with small helpers or domain-specific functions.
-- Encode invariants in constructors, validation functions, and dedicated value objects instead of scattering checks.
-- Prefer explicit domain terms over generic utility names.
+- Prefer functions over classes.
+- `workflow/` contains functions only; never define classes there.
+- Keep business data in domain enums/dataclasses and contracts in Protocols.
+- Keep side effects at explicit DB/gateway/API boundaries.
+- Prefer immutable transformations over mutation.
+- Every executable business function has explicit parameter and return annotations.
 
-## Traits via Protocol with @runtime_checkable
+## Result and Maybe
 
-- Define abstract behavior using `typing.Protocol` decorated with `@runtime_checkable`.
-- Protocol methods should contain only `...` (or `pass`) with fully typed signatures—this models **traits** as in Rust.
-- Use protocols to generalize behavior across types without forcing inheritance.
-- When a concrete class must implement a trait (protocol), define it with `@attrs.define` to avoid writing `__init__` boilerplate.
-- Do not use traditional inheritance hierarchies; prefer structural subtyping via protocols.
+Use `returns` as the default expected-control-flow model:
 
-## Pattern Matching with match-case
+```text
+Result[T, E] -> Success(T) | Failure(E)
+Maybe[T]     -> Some(T) | Nothing
+```
 
-- **Prefer `match-case` over deep `if-elif-else` chains**.
-- Define all possible patterns for domain branching as `Enum` classes (or tagged unions) so the compiler and reader can see the full decision space.
-- Use pattern matching to destructure dataclasses, enums, and tuples at the point of decision.
-- Ensure `match` statements are exhaustive; if a fallback case is truly unreachable, explicitly mark it with a comment and a narrow `raise`.
+All business functions return `Result[T, E]`, except private computational helpers
+that may return `Maybe[T]` when absence is the only alternative.
 
-## Use returns for All Functional Operations
+Prefer fluent operations such as `.map()`, `.bind()`, `.lash()`, `.alt()`, and
+`.value_or()` over repeatedly matching/unwrapping containers.
 
-- **YOU HAVE TO USE the `returns` library** for all functional composition, piped operations, error handling, and optional value management.
-- Leverage `returns` capabilities including `Maybe`, `Result`, `Success`, `Failure`, `map`, `bind`, `alt`, `unwrap`, `lash`, `value_or`, `or_else_call`, and other composable helpers.
-- Handle optional/absent values with `returns.Maybe` instead of raw `None` checks.
-- **Never place `try/except` blocks inside fluent chain/pipeline expressions.**
-- **If an operation can raise, isolate it in a small boundary helper that returns `returns.Result` or `returns.Maybe`, then consume it through combinators (`bind`, `map`, `alt`, `lash`, `bind_optional`).**
-- Convert exceptions from I/O boundaries into `returns.Result`/`returns.Maybe` containers immediately and continue with chained combinators only.
-- **Function return types must always be `returns.Result[PydanticModel]`** — never bare primitives or unwrapped types.
-- Code as you would in Rust: explicit types, no hidden mutation, trait-based polymorphism, and exhaustive pattern matching.
-- For all fluent/pipeline-style expressions, keep each chained `.` operation on its own line for readability and diff safety.
+Use `match` only when the business flow genuinely branches over a finite domain
+state, especially enum values.
 
-## Use returns for Explicit Success and Failure Flows
+## Workflow Function Kinds
 
-- Prefer `returns.Result[PydanticModel]` (with `Success` and `Failure` variants) for operations that can fail in expected ways.
-- Chain transformations with `returns` combinators (`map`, `bind`, `alt`, `lash`, `unwrap`) instead of deeply nested `if` blocks.
-- Reserve exceptions for truly exceptional conditions, external-library boundaries, or unrecoverable startup issues.
-- **`try/except` is allowed only at boundary-wrapper function level; never as the primary control-flow mechanism in domain pipelines.**
-- Return well-defined error types inside `returns.Failure` instead of plain strings whenever the caller may branch on the failure.
-- Chain `returns.Result` and `returns.Maybe` inside pipe chains using `bind`, `map`, and `lash`.
-- **Never return bare primitives from functions.** Wrap every success value in a Pydantic model before returning it inside `returns.Success`.
+### Helpers
 
-## Define Explicit Error Types
+Private helper functions:
 
-- Create small error classes or tagged error values for meaningful failure cases.
-- Give each error enough structure to support logging, testing, and caller decisions.
-- Keep error variants domain-oriented, such as validation, parsing, lookup, or dependency failures.
-- Do not use broad `except Exception` unless re-raising or wrapping at a clear boundary.
-- Catch the narrowest expected exception type in wrapper helpers, map to typed domain errors, and return `Failure`/`Nothing` for downstream chain handling.
+- start with `_`;
+- are never imported from other modules;
+- are computational rather than business workflows;
+- may accept/return primitive values;
+- return `Result[T, E]` or `Maybe[T]`.
+
+### Pipelines
+
+Public pipeline functions:
+
+- represent business actions;
+- orchestrate helpers and possibly other pipelines;
+- accept domain-typed business values;
+- return `Result[DomainType, ErrorType]`;
+- never use a primitive success type;
+- compose work with fluent Result/Maybe operations whenever practical.
+
+Keep pipeline code linear and readable.
+
+## Type-Driven Function Dispatch
+
+Use `functools.singledispatch` when behavior varies by the runtime class of the first
+domain argument.
+
+Prefer this to long `isinstance` chains.
+
+The default implementation returns a typed `Failure`, not
+`NotImplementedError`/an expected exception.
+
+```python
+@singledispatch
+def process(
+    value: object,
+) -> Result[ProcessedValue, AppError]:
+    return Failure(
+        UnsupportedDomainType(type_name=type(value).__name__),
+    )
+
+
+@process.register
+def _(
+    value: DomainA,
+) -> Result[ProcessedValue, AppError]:
+    ...
+```
+
+`singledispatch` dispatches only on the first argument's runtime class. It does not
+dispatch on different members of the same Enum; use explicit enum branching there.
+
+## Iterator-Based Collection Work
+
+Avoid imperative `for` loops when the same operation is clearer as a declarative
+transformation.
+
+Prefer:
+
+- `map`;
+- `filter`;
+- generators/comprehensions where clearer;
+- `itertools` for lazy composition;
+- `returns.iterables.Fold` for collections containing Result/Maybe values.
+
+Use `.iter().map().filter()` fluent syntax only when the concrete iterable library in
+the project actually supports it. Stdlib `itertools` does not provide that method
+chain API.
+
+## Exceptions
+
+Do not use `try/except` for business control flow.
+
+Catch external/library exceptions only in DB/gateway boundary implementations and
+convert expected failures immediately into typed `Failure` values.
+
+Pure helpers and pipeline functions should be total over their declared business
+inputs: expected error cases are values, not raises.
+
+## Formatting
+
+Write fluent chains vertically:
+
+```python
+result
+.map(step_one)
+.bind(step_two)
+.lash(recover)
+```
+
+For non-trivial multiline calls, place arguments one per line with trailing commas.
