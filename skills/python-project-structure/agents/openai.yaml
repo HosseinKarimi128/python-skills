@@ -1,3 +1,0 @@
-display_name: Python Project Structure
-short_description: PostgreSQL-first FastAPI structure with SQL files, flat modules, and workflow-only orchestration.
-default_prompt: Create or refactor a Python backend using the PostgreSQL-first project structure. Keep simple CRUD as API -> SQL, use workflow only for non-trivial orchestration, keep domain to enums/dataclasses/Protocols, keep Pydantic at API and gateway boundaries, and avoid ORM/repository/UoW ceremony unless explicitly justified.
